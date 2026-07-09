@@ -33,31 +33,57 @@ jobs:
 
       - name: Unzip source project
         run: |
+          rm -rf buildsrc
           unzip -o BiliHDRBlackBarsFix-cloud-build.zip -d buildsrc
-          ls -R buildsrc | head -80
+          echo "===== files after unzip ====="
+          find buildsrc -maxdepth 4 -type f | sort | head -120
+          PROJECT_DIR=$(find buildsrc -name settings.gradle -print -quit | xargs dirname)
+          echo "PROJECT_DIR=$PROJECT_DIR"
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "No settings.gradle found after unzip"
+            exit 1
+          fi
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
 
       - name: Patch repositories
         run: |
-          cd buildsrc/BiliHDRBlackBarsFix-cloud-build
+          cd "$PROJECT_DIR"
           python3 - <<'PY'
           from pathlib import Path
+
           p = Path("settings.gradle")
           s = p.read_text()
+
           if "api.xposed.info" not in s:
               s = s.replace(
                   "repositories { google(); mavenCentral() }",
                   "repositories { google(); mavenCentral(); maven { url 'https://api.xposed.info/' } }"
               )
+
+              s = s.replace(
+                  """repositories {
+              google()
+              mavenCentral()
+          }""",
+                  """repositories {
+              google()
+              mavenCentral()
+              maven { url 'https://api.xposed.info/' }
+          }"""
+              )
+
           p.write_text(s)
+          print("===== patched settings.gradle =====")
+          print(p.read_text())
           PY
 
       - name: Build debug APK
         run: |
-          cd buildsrc/BiliHDRBlackBarsFix-cloud-build
+          cd "$PROJECT_DIR"
           gradle assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BiliHDRBlackBarsFix-debug-apk
-          path: buildsrc/BiliHDRBlackBarsFix-cloud-build/app/build/outputs/apk/debug/*.apk
+          name: BiliHDRBlackBarsFix-v2-debug-apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
